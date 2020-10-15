@@ -6,7 +6,7 @@ SPECRGB     0 0 0
 REFL        0
 REFR        0
 REFRIOR     0
-EMITTANCE   7
+EMITTANCE   10
 
 // Diffuse white
 MATERIAL 1
@@ -140,10 +140,10 @@ SCALE       .01 10 10
 
 // Sphere
 OBJECTOBJ 6
-../scenesobj/cube.obj
+../scenesobj/wahoo.obj
 material -1
-TRANS       0 3 1
-ROTAT       30 30 30
+TRANS       0 3 -1
+ROTAT       0 0 0
 SCALE       1 1 1
 
 

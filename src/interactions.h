@@ -190,7 +190,7 @@ void scatterRay(
         glm::vec3 diffuseRayDirection = calculateRandomDirectionInHemisphere(normal, rng);
         pathSegment.ray.direction = glm::normalize(diffuseRayDirection);
         if (mId == -1) {
-            pathSegment.color *= glm::vec3(uv.x, uv.y, 0);
+            pathSegment.color *= glm::normalize(normal);//glm::vec3(0, uv.y, uv.x);
         }
         else {
             pathSegment.color *= m.color;
