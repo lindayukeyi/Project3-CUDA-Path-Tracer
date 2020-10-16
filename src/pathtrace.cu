@@ -6,6 +6,7 @@
 #include <thrust/partition.h>
 #include <thrust/device_ptr.h>
 #include <cuda_runtime.h>
+#include <device_functions.h>
 
 #include "sceneStructs.h"
 #include "scene.h"
@@ -56,9 +57,55 @@ thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int de
     return thrust::default_random_engine(h);
 }
 
+
+
+float kernel[25] = {
+1.0f/256.0f,	1.0f/64.0f,	3.0f/128.0f,	1.0f / 64.0f,	1.0f / 256.0f,
+1.0f / 64.0f,	1.0f / 16.0f,	3.0f / 32.0f,	1.0f/16.0f,	1.0f / 64.0f,
+3.0f / 128.0f,	3.0f/32.0f,	9.0f/64.0f,	3.0f / 32.0f,	3.0f / 128.0f,
+1.0f / 64.0f,	1.0f / 16.0f,	3.0f / 32.0f,	1.0f / 16.0f,	1.0f / 64.0f,
+1.0f / 256.0f,	1.0f / 64.0f,	3.0f / 128.0f,	1.0f / 64.0f,	1.0f / 256.0f };
+                    
+/*
+float kernel[49] = {
+0.000002,	0.000052,	0.000348,	0.000653,	0.000348,	0.000052,	0.000002,
+0.000052,	0.001278,	0.008539,	0.016014,	0.008539,	0.001278,	0.000052,
+0.000348,	0.008539,	0.057042,	0.106976,	0.057042,	0.008539,	0.000348,
+0.000653,	0.016014,	0.106976,	0.20062,	0.106976,	0.016014,	0.000653,
+0.000348,	0.008539,	0.057042,	0.106976,	0.057042,	0.008539,	0.000348,
+0.000052,	0.001278,	0.008539,	0.016014,	0.008539,	0.001278,	0.000052,
+0.000002,	0.000052,	0.000348,	0.000653,	0.000348,	0.000052,	0.000002 };
+*/
+glm::ivec2 offset[25] = { {-2, -2}, {-1, -2}, {0, -2}, {1, -2}, {2, -2},
+                         {-2, -1}, {-1, -1}, {0, -1}, {1, -1}, {2, -1},
+                         {-2, 0}, {-1, 0}, {0, 0}, {1, 0}, {2, 0},
+                        {-2, 1}, {-1, 1}, {0, 1}, {1, 1}, {2, 1},
+                        {-2, 2}, {-1, 2}, {0, 2}, {1, 2}, {2, 2} };
+
+
+
+static Scene * hst_scene = NULL;
+static glm::vec3 * dev_image = NULL;
+static Geom * dev_geoms = NULL;
+static Material * dev_materials = NULL;
+static PathSegment * dev_paths = NULL;
+static ShadeableIntersection * dev_intersections = NULL;
+// TODO: static variables for device memory, any extra info you need, etc
+// ...
+static PathSegment* dev_paths_cache = NULL;
+static ShadeableIntersection* dev_intersections_cache = NULL;
+static Triangle* dev_triangles = NULL;
+static OctreeNode* dev_octrees = NULL;
+static GBufferPixel* dev_gBuffer = NULL;
+static float* dev_kernel = NULL;
+static glm::ivec2* dev_offset = NULL;
+static glm::vec3* dev_out = NULL;
+static glm::vec3* dev_in = NULL;
+
+
 //Kernel that writes the image to the OpenGL PBO directly.
 __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
-        int iter, glm::vec3* image) {
+    int iter, glm::vec3* image) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
@@ -67,9 +114,27 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
         glm::vec3 pix = image[index];
 
         glm::ivec3 color;
-        color.x = glm::clamp((int) (pix.x / iter * 255.0), 0, 255);
-        color.y = glm::clamp((int) (pix.y / iter * 255.0), 0, 255);
-        color.z = glm::clamp((int) (pix.z / iter * 255.0), 0, 255);
+        color.x = glm::clamp((int)(pix.x / iter * 255.0), 0, 255);
+        color.y = glm::clamp((int)(pix.y / iter * 255.0), 0, 255);
+        color.z = glm::clamp((int)(pix.z / iter * 255.0), 0, 255);
+
+        // Each thread writes one pixel location in the texture (textel)
+        pbo[index].w = 0;
+        pbo[index].x = color.x;
+        pbo[index].y = color.y;
+        pbo[index].z = color.z;
+    }
+}
+
+//Kernel that writes the image to the OpenGL PBO directly.
+__global__ void sendImageToPBO2(uchar4* pbo, glm::ivec2 resolution,
+    int iter, glm::vec3* image) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 color = image[index];
 
         // Each thread writes one pixel location in the texture (textel)
         pbo[index].w = 0;
@@ -90,13 +155,11 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
         glm::vec3 nor = gBuffer[index].normal;
         //glm::vec3 pos_normalized = glm::normalize(pos);
         glm::ivec3 color;
-
         // show normals
-        
-        color.x = glm::clamp((int) (glm::abs(nor.x) * 255.0), 0, 255);
+
+        color.x = glm::clamp((int)(glm::abs(nor.x) * 255.0), 0, 255);
         color.y = glm::clamp((int)(glm::abs(nor.y) * 255.0), 0, 255);
         color.z = glm::clamp((int)(glm::abs(nor.z) * 255.0), 0, 255);
-        
 
         // show positions
         /*
@@ -113,21 +176,87 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
     }
 }
 
-static Scene * hst_scene = NULL;
-static glm::vec3 * dev_image = NULL;
-static Geom * dev_geoms = NULL;
-static Material * dev_materials = NULL;
-static PathSegment * dev_paths = NULL;
-static ShadeableIntersection * dev_intersections = NULL;
-// TODO: static variables for device memory, any extra info you need, etc
-// ...
-static PathSegment* dev_paths_cache = NULL;
-static ShadeableIntersection* dev_intersections_cache = NULL;
-static Triangle* dev_triangles = NULL;
-static OctreeNode* dev_octrees = NULL;
-static GBufferPixel* dev_gBuffer = NULL;
+__global__ void colorPerIter(glm::ivec2 resolution, glm::vec3* image, glm::vec3* colorPerIter, int iter) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        glm::vec3 pix = image[index];
+
+        glm::ivec3 color;
+        color.x = glm::clamp((int)(pix.x / iter * 255.0), 0, 255);
+        color.y = glm::clamp((int)(pix.y / iter * 255.0), 0, 255);
+        color.z = glm::clamp((int)(pix.z / iter * 255.0), 0, 255);
+
+        // Each thread writes one pixel location in the texture (textel)
+        colorPerIter[index].x = color.x;
+        colorPerIter[index].y = color.y;
+        colorPerIter[index].z = color.z;
+    }
+}
 
 
+__global__ void denoise(glm::ivec2 resolution, int iter, glm::vec3* image, glm::ivec2* offset, float* kernel, GBufferPixel* gBuffer, int stepwidth, glm::vec3* out, float c_phi, float n_phi, float p_phi) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+        //uchar4 color = pbo[index];
+        glm::vec3 cval = image[index];
+
+        glm::vec3 sum(0.0f);
+        //glm::ivec2 step((int) (1.0f / (float)resolution.x), (int) (1.0f / (float)resolution.y));
+
+        glm::vec3 pval = gBuffer[index].position;
+        glm::vec3 nval = gBuffer[index].normal;
+
+
+        float cum_w = 0.0f;
+        c_phi = 0.572f;
+        n_phi = 0.021f;
+        p_phi = 0.789f;
+
+
+            for (int i = 0; i < 25; i++) {
+
+                glm::ivec2 uv;
+
+                uv.x = glm::clamp(x + offset[i].x * stepwidth, 0, resolution.x - 1);
+                uv.y = glm::clamp(y + offset[i].y * stepwidth, 0, resolution.y - 1);
+
+
+                int point_index = uv.x + (uv.y * resolution.x);
+
+                glm::vec3 ctmp = image[point_index];
+
+
+                glm::vec3 t = cval - ctmp;
+                float dist2 = glm::dot(t, t);
+                float c_w = glm::min(glm::exp(-(dist2) / c_phi), 1.0f);
+
+                glm::vec3 ntmp = gBuffer[point_index].normal;
+                t = nval - ntmp;
+                dist2 = glm::max(glm::dot(t, t) / (stepwidth * stepwidth), 0.0f);
+                float n_w = glm::min(glm::exp(-(dist2) / n_phi), 1.0f);
+
+                glm::vec3 ptmp = gBuffer[point_index].position;
+                t = pval - ptmp;
+                dist2 = glm::dot(t, t);
+                float p_w = glm::min(glm::exp(-(dist2) / p_phi), 1.0f);
+
+                float weight = c_w * p_w * n_w * kernel[i];
+
+                sum += ctmp * weight;//(kernel[i] / 273.0f);
+                cum_w += weight;
+            }
+
+
+        // Each thread writes one pixel location in the texture (textel)
+            out[index] = sum / cum_w;
+    }
+}
 void pathtraceInit(Scene *scene) {
     hst_scene = scene;
     const Camera &cam = hst_scene->state.camera;
@@ -161,6 +290,17 @@ void pathtraceInit(Scene *scene) {
 
     cudaMalloc(&dev_gBuffer, pixelcount * sizeof(GBufferPixel));
 
+    cudaMalloc(&dev_kernel, 25 * sizeof(float));
+    cudaMemcpy(dev_kernel, kernel, 25 * sizeof(float), cudaMemcpyHostToDevice);
+
+    cudaMalloc(&dev_offset, 25 * sizeof(glm::ivec2));
+    cudaMemcpy(dev_offset, offset, 25 * sizeof(glm::ivec2), cudaMemcpyHostToDevice);
+
+    cudaMalloc(&dev_out, pixelcount * sizeof(glm::vec3));
+
+    cudaMalloc(&dev_in, pixelcount * sizeof(glm::vec3));
+
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -174,7 +314,10 @@ void pathtraceFree() {
     cudaFree(dev_triangles);
     cudaFree(dev_octrees);
     cudaFree(dev_gBuffer);
-
+    cudaFree(dev_kernel);
+    cudaFree(dev_offset);
+    cudaFree(dev_out);
+    cudaFree(dev_in);
     checkCUDAError("pathtraceFree");
 }
 
@@ -349,7 +492,7 @@ __global__ void computeIntersections(
 // Note that this shader does NOT do a BSDF evaluation!
 // Your shaders should handle that - this can allow techniques such as
 // bump mapping.
-__global__ void shadeFakeMaterial (
+__global__ void shadeMaterial (
   int iter
   , int num_paths
 	, ShadeableIntersection * shadeableIntersections
@@ -616,7 +759,7 @@ void pathtrace(int frame, int iter) {
     if (depth == 1) {
         generateGBuffer << <numblocksPathSegmentTracing, blockSize1d >> > (num_paths, dev_intersections, dev_paths, dev_gBuffer);
     }
-    shadeFakeMaterial << <numblocksPathSegmentTracing, blockSize1d >> > (
+    shadeMaterial << <numblocksPathSegmentTracing, blockSize1d >> > (
         iter,
         num_paths,
         dev_intersections,
@@ -676,7 +819,7 @@ void showGBuffer(uchar4* pbo) {
     gbufferToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer);
 }
 
-void showImage(uchar4* pbo, int iter) {
+void showImage(uchar4* pbo, int iter, bool isdenoise, float c_phi, float n_phi, float p_phi) {
     const Camera& cam = hst_scene->state.camera;
     const dim3 blockSize2d(8, 8);
     const dim3 blocksPerGrid2d(
@@ -684,5 +827,23 @@ void showImage(uchar4* pbo, int iter) {
         (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
     // Send results to OpenGL buffer for rendering
-    sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
+    int pixelcount = cam.resolution.x * cam.resolution.y;
+
+    int stepwidth = 1;
+    if (isdenoise) {
+        colorPerIter << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, dev_image, dev_in, iter);
+        int filtersize = 64;
+        int num = glm::log(filtersize / 2);
+        for (stepwidth = 1; stepwidth <= filtersize / 2; stepwidth *= 2) {
+            denoise << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, iter, dev_in, dev_offset, dev_kernel, dev_gBuffer, stepwidth, dev_out, c_phi, n_phi, p_phi);
+            cudaMemcpy(dev_in, dev_out, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+        }
+
+        sendImageToPBO2 << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_in);
+
+
+    }
+    else {
+        sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
+    }
 }
