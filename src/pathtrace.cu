@@ -28,6 +28,8 @@
 #define ANTIALISING 0
 #define BLUR 0
 #define CULLING 1
+#define GAUSSIAN 1
+#define ATROUS 0
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
@@ -65,7 +67,17 @@ float kernel[25] = {
 3.0f / 128.0f,	3.0f/32.0f,	9.0f/64.0f,	3.0f / 32.0f,	3.0f / 128.0f,
 1.0f / 64.0f,	1.0f / 16.0f,	3.0f / 32.0f,	1.0f / 16.0f,	1.0f / 64.0f,
 1.0f / 256.0f,	1.0f / 64.0f,	3.0f / 128.0f,	1.0f / 64.0f,	1.0f / 256.0f };
-                    
+ 
+/*
+float kernel[25] = {
+    1.0/16.0, 1.0/4.0, 3.0/8.0, 1.0/4.0, 1.0/16.0,
+        1.0 / 16.0, 1.0 / 4.0, 3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0,
+    1.0 / 16.0, 1.0 / 4.0, 3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0,
+    1.0 / 16.0, 1.0 / 4.0, 3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0,
+    1.0 / 16.0, 1.0 / 4.0, 3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0
+
+};
+*/
 /*
 float kernel[49] = {
 0.000002,	0.000052,	0.000348,	0.000653,	0.000348,	0.000052,	0.000002,
@@ -204,19 +216,20 @@ __global__ void denoise(glm::ivec2 resolution, int iter, glm::vec3* image, glm::
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
         //uchar4 color = pbo[index];
-        glm::vec3 cval = image[index];
+        glm::vec3 cval = image[index] / 255.0f;
 
         glm::vec3 sum(0.0f);
         //glm::ivec2 step((int) (1.0f / (float)resolution.x), (int) (1.0f / (float)resolution.y));
 
         glm::vec3 pval = gBuffer[index].position;
         glm::vec3 nval = gBuffer[index].normal;
-
+        float sampleFrame = stepwidth;
+        float sf2 = sampleFrame * sampleFrame;
 
         float cum_w = 0.0f;
-        c_phi = 0.572f;
-        n_phi = 0.021f;
-        p_phi = 0.789f;
+        //c_phi = 0.572f;
+        //n_phi = 0.021f;
+        //p_phi = 0.789f;
 
 
             for (int i = 0; i < 25; i++) {
@@ -228,9 +241,8 @@ __global__ void denoise(glm::ivec2 resolution, int iter, glm::vec3* image, glm::
 
 
                 int point_index = uv.x + (uv.y * resolution.x);
-
-                glm::vec3 ctmp = image[point_index];
-
+                
+                glm::vec3 ctmp = image[point_index] / 255.0f;
 
                 glm::vec3 t = cval - ctmp;
                 float dist2 = glm::dot(t, t);
@@ -245,15 +257,19 @@ __global__ void denoise(glm::ivec2 resolution, int iter, glm::vec3* image, glm::
                 t = pval - ptmp;
                 dist2 = glm::dot(t, t);
                 float p_w = glm::min(glm::exp(-(dist2) / p_phi), 1.0f);
+#ifdef GAUSSIAN
+                float weight = kernel[i];
+#else
+                float weight = c_w * n_w * p_w * kernel[i];
 
-                float weight = c_w * p_w * n_w * kernel[i];
+#endif // GAUSSIAN
 
-                sum += ctmp * weight;//(kernel[i] / 273.0f);
+
+                sum += ctmp * weight;
                 cum_w += weight;
+
             }
-
-
-        // Each thread writes one pixel location in the texture (textel)
+            sum *= 255.0f;
             out[index] = sum / cum_w;
     }
 }
@@ -297,8 +313,10 @@ void pathtraceInit(Scene *scene) {
     cudaMemcpy(dev_offset, offset, 25 * sizeof(glm::ivec2), cudaMemcpyHostToDevice);
 
     cudaMalloc(&dev_out, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_out, 0, pixelcount * sizeof(glm::vec3));
 
     cudaMalloc(&dev_in, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_in, 0, pixelcount * sizeof(glm::vec3));
 
 
     checkCUDAError("pathtraceInit");
@@ -802,6 +820,7 @@ void pathtrace(int frame, int iter) {
     // Retrieve image from GPU
     cudaMemcpy(hst_scene->state.image.data(), dev_image,
             pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
+    cudaMemcpy(hst_scene->state.image_denoise.data(), dev_out, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 
     checkCUDAError("pathtrace");
 }
@@ -832,14 +851,16 @@ void showImage(uchar4* pbo, int iter, bool isdenoise, float c_phi, float n_phi, 
     int stepwidth = 1;
     if (isdenoise) {
         colorPerIter << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, dev_image, dev_in, iter);
-        int filtersize = 64;
+        int filtersize = 8;
         int num = glm::log(filtersize / 2);
         for (stepwidth = 1; stepwidth <= filtersize / 2; stepwidth *= 2) {
+            //printf("Denoise step: %d\n", stepwidth);
             denoise << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, iter, dev_in, dev_offset, dev_kernel, dev_gBuffer, stepwidth, dev_out, c_phi, n_phi, p_phi);
             cudaMemcpy(dev_in, dev_out, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+            //dev_in = dev_out;
         }
 
-        sendImageToPBO2 << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_in);
+        sendImageToPBO2 << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_out);
 
 
     }

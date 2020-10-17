@@ -101,22 +101,32 @@ void saveImage() {
     float samples = iteration;
     // output image file
     image img(width, height);
+    image img_denoise(width, height);
 
     for (int x = 0; x < width; x++) {
         for (int y = 0; y < height; y++) {
             int index = x + (y * width);
             glm::vec3 pix = renderState->image[index];
             img.setPixel(width - 1 - x, y, glm::vec3(pix) / samples);
+            glm::vec3 pix_denoise = renderState->image_denoise[index];
+            img_denoise.setPixel(width - 1 - x, y, glm::vec3(pix_denoise) / 255.0f);
         }
     }
 
-    std::string filename = "C:/Users/keyiy/Penn/CIS565/Project3-CUDA-Path-Tracer/img/" + renderState->imageName;
+    std::string filename = "C:/Users/keyiy/Penn/CIS565/Project3-CUDA-Path-Tracer/img2/" + renderState->imageName;
     std::ostringstream ss;
     ss << filename << "." << startTimeString << "." << samples << "samp";
     filename = ss.str();
 
+    std::string filename_denoise = "C:/Users/keyiy/Penn/CIS565/Project3-CUDA-Path-Tracer/img2/denoise_" + renderState->imageName;
+    std::ostringstream ss_denoise;
+    ss_denoise << filename_denoise << "." << startTimeString << "." << samples << "samp";
+    filename_denoise = ss_denoise.str();
+
     // CHECKITOUT
     img.savePNG(filename);
+    img_denoise.savePNG(filename_denoise);
+
     //img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
@@ -157,6 +167,7 @@ void runCuda() {
     uchar4* pbo_dptr = NULL;
     cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
+
     if (iteration < ui_iterations) {
         iteration++;
 
@@ -174,6 +185,7 @@ void runCuda() {
 
     // unmap buffer object
     cudaGLUnmapBufferObject(pbo);
+
 
     if (ui_saveAndExit) {
         saveImage();
