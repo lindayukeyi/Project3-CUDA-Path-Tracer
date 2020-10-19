@@ -199,7 +199,7 @@ Obviously, the number of iterations needed to get an "acceptably smooth" result 
 |![](img2/simple-80/cornell.2020-10-18_02-10-19z.315samp.png) | ![](img2/simple-80/cornell.2020-10-18_02-10-19z.15samp.png) | ![](img2/simple-80/denoise_cornell.2020-10-18_02-10-19z.315samp.png) |
 ||MSE 820.784|MSE 67.12|
 
-Also, as the number of iterations increases, the raw path tracing results will become more soomth. However, the algorithm will not affect the results a lot after I get a an "acceptably smooth" result.
+Also, as the number of iterations increases, the raw path tracing results will become more soomth. However, the algorithm will not affect the denoised results a lot after I get a an "acceptably smooth" result.
 
 ||10 |  30 |  190| 500 | 1140|
 :-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
@@ -208,7 +208,15 @@ Also, as the number of iterations increases, the raw path tracing results will b
 
 ### Runtime at different resolutions
 
+As we can see from the figure below, resolution greatly affects the time to do path tracing in both scenes. In a complex scene, time to compute denoising results is negligible while in a simple scene, time to compute denoising results accounts for a lot. This is because denoising algorithm costs almost same time for images of same resolution.
+
+| Simple Scene | Relative Complex Scene |
+:-------------------------:|:-------------------------:
+![](img/resolution-sphere.png) | ![](img/resolution-bunny.png)
+
 ### Different Materials
+
+I feel that the diffuse reflection material is still like diffuse reflection, and the glass material is a bit like frosted glass. But the reflective material is a bit like glass material
 
 1. Diffusion
 
@@ -219,6 +227,10 @@ Also, as the number of iterations increases, the raw path tracing results will b
 
 2. Reflection
 
+|RT Reference/Result(2200 iterations) |  RT Result(15 iterations) |  Denoised Result(15 iterations)|
+:-------------------------:|:-------------------------:|:-------------------------:
+|![](img2/cornell1-reflect-80/cornell.2020-10-17_19-52-29z.2200samp.png) | ![](img2/cornell1-reflect-32-2/cornell.2020-10-19_18-07-02z.120samp.png) | ![](img2/cornell1-reflect-32-2/denoise_cornell.2020-10-19_18-07-02z.120samp.png) |
+||MSE 590.35|MSE 55.620|
 
 3. Refraction
 
@@ -228,13 +240,27 @@ Also, as the number of iterations increases, the raw path tracing results will b
 ||MSE 232.110|MSE 40.402|
 
 ### Filter size
-### Different scenes
 
+With larger filter, less samples are need to get a acceptable result. However, time for denoising at each iteration is increased. In addition, some details will be missing with larger filters. So it is important to choose a proper filter.
+
+|| filtersize=16 | filtersize = 64|
+:-------------------------:|:-------------------------:|:-------------------------:
+| Visual Result| ![](img/bunny16.png) | ![](img/bunny64.png)|
+| Denoising time| 471.733ms| 667.868ms|
+|MSE| 603.614 | 636.989|
+
+### Different scenes
+ In a simple scene like the first scene below, less samples are needed to get a accptable result. Also, as the scene becomes more complex, the error will increase. This is because the denoising filter is implemented on a rendering image, which greatly affect the results of denoising. In the first scene with a big light, many rays will terminate early and thus less samples are needed to get a smooth image. In other words, this scene will produce less noise and then end up with a better denoising result.
 
 |RT Reference/Result(315 iterations) |  RT Result(15 iterations) |  Denoised Result(15 iterations)|
 :-------------------------:|:-------------------------:|:-------------------------:
 |![](img2/simple-80/cornell.2020-10-18_02-10-19z.315samp.png) | ![](img2/simple-80/cornell.2020-10-18_02-10-19z.15samp.png) | ![](img2/simple-80/denoise_cornell.2020-10-18_02-10-19z.315samp.png) |
 ||MSE 820.784|MSE 67.12|
+
+|RT Reference/Result(2200 iterations) |  RT Result(33 iterations) |  Denoised Result(33 iterations)|
+:-------------------------:|:-------------------------:|:-------------------------:
+|![](img2/cornell1-reflect-80/cornell.2020-10-17_19-52-29z.2200samp.png) | ![](img2/cornell1-reflect-32-2/cornell.2020-10-19_18-07-02z.120samp.png) | ![](img2/cornell1-reflect-32-2/denoise_cornell.2020-10-19_18-07-02z.120samp.png) |
+||MSE 590.35|MSE 55.620|
 
 
 |RT Reference/Result(5000 iterations) |  RT Result(125 iterations) |  Denoised Result(125 iterations)|
@@ -242,6 +268,14 @@ Also, as the number of iterations increases, the raw path tracing results will b
 |![](img/basicscene1.png) | ![](img2/combo-32/cornell.2020-10-18_02-16-15z.125samp.png) | ![](img2/combo-32/denoise_cornell.2020-10-18_02-16-15z.125samp.png) |
 ||MSE 3603.244|MSE 1240.063|
 
+### Gaussian vs Edge-Avoiding A-Trous
+
+Obviously, Edge-Avoiding A-Trous filter preserves more details. In theory, the second method requires less calculations and should take less time. However, I found that the Gaussian performs much better than the Edge-Avoiding A-Trous. The reason for that could be a decent amount of time reading data of GBuffer from memory. A more compact GBuffer should be used to improve performance of Edge-Avoiding A-Trous.
+
+||Gaussian            |  Edge-Avoiding A-Trous |
+:-------------------------:|:-------------------------:|:-------------------------:
+Scene| ![](img/gaussian.png)|![](img2/cornell1-reflect-32-2/denoise_cornell.2020-10-19_18-07-02z.120samp.png) |
+Time|93.743ms|479.946ms
 
 ## Debug
 1. remove_if vs partition
@@ -249,7 +283,7 @@ Also, as the number of iterations increases, the raw path tracing results will b
 When I used remove_if to filter ending ray, the light is black. remove_if doesn't put the removed elements anywhere; the elements after the new end will have their old values, so some of the removed elements might be missing, and some of the preserved elements might be duplicated. [Answer on stackovwerflow](#https://stackoverflow.com/questions/3521352/difference-between-partition-and-remove-functions-in-c)  So I used partition to do stream compaction.
 
 Bug            |  Fixed
-:-------------------------:|:-------------------------:
+:-------------------------:|:-------------------------:|:-------------------------:
 ![](bug/p1-2xx.png) | ![](bug/p1-2xxx.png)
 
 

@@ -16,6 +16,7 @@
 #include "pathtrace.h"
 #include "intersections.h"
 #include "interactions.h"
+#include "common.h"
 
 #include <chrono>
 
@@ -59,7 +60,7 @@ thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int de
     return thrust::default_random_engine(h);
 }
 
-
+#if !GAUSSIAN
 
 float kernel[25] = {
 1.0f/256.0f,	1.0f/64.0f,	3.0f/128.0f,	1.0f / 64.0f,	1.0f / 256.0f,
@@ -67,7 +68,8 @@ float kernel[25] = {
 3.0f / 128.0f,	3.0f/32.0f,	9.0f/64.0f,	3.0f / 32.0f,	3.0f / 128.0f,
 1.0f / 64.0f,	1.0f / 16.0f,	3.0f / 32.0f,	1.0f / 16.0f,	1.0f / 64.0f,
 1.0f / 256.0f,	1.0f / 64.0f,	3.0f / 128.0f,	1.0f / 64.0f,	1.0f / 256.0f };
- 
+#endif
+
 /*
 float kernel[25] = {
     1.0/16.0, 1.0/4.0, 3.0/8.0, 1.0/4.0, 1.0/16.0,
@@ -88,11 +90,36 @@ float kernel[49] = {
 0.000052,	0.001278,	0.008539,	0.016014,	0.008539,	0.001278,	0.000052,
 0.000002,	0.000052,	0.000348,	0.000653,	0.000348,	0.000052,	0.000002 };
 */
+
+#if GAUSSIAN
+float kernel[225] = {
+    0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+0,	0,	0,	0,	0,	0,	0.000001,	0.000001,	0.000001,	0,	0,	0,	0,	0,	0,
+0,	0,	0,	0,	0.000001,	0.000014,	0.000055,	0.000088,	0.000055,	0.000014,	0.000001,	0,	0,	0,	0,
+0,	0,	0,	0.000001,	0.000036,	0.000362,	0.001445,	0.002289,	0.001445,	0.000362,	0.000036,	0.000001,	0,	0,	0,
+0,	0,	0,	0.000014,	0.000362,	0.003672,	0.014648,	0.023204,	0.014648,	0.003672,	0.000362,	0.000014,	0,	0,	0,
+0,	0,	0.000001,	0.000055,	0.001445,	0.014648,	0.058433,	0.092564,	0.058433,	0.014648,	0.001445,	0.000055,	0.000001,	0,	0,
+0,	0,	0.000001,	0.000088,	0.002289,	0.023204,	0.092564,	0.146632,	0.092564,	0.023204,	0.002289,	0.000088,	0.000001,	0,	0,
+0,	0,	0.000001,	0.000055,	0.001445,	0.014648,	0.058433,	0.092564,	0.058433,	0.014648,	0.001445,	0.000055,	0.000001,	0,	0,
+0,	0,	0,	0.000014,	0.000362,	0.003672,	0.014648,	0.023204,	0.014648,	0.003672,	0.000362,	0.000014,	0,	0,	0,
+0,	0,	0,	0.000001,	0.000036,	0.000362,	0.001445,	0.002289,	0.001445,	0.000362,	0.000036,	0.000001,	0,	0,	0,
+0,	0,	0,	0,	0.000001,	0.000014,	0.000055,	0.000088,	0.000055,	0.000014,	0.000001,	0,	0,	0,	0,
+0,	0,	0,	0,	0,	0,	0.000001,	0.000001,	0.000001,	0,	0,	0,	0,	0,	0,
+0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0
+
+};
+#endif // GAUSSIAN
+
+
+
 glm::ivec2 offset[25] = { {-2, -2}, {-1, -2}, {0, -2}, {1, -2}, {2, -2},
                          {-2, -1}, {-1, -1}, {0, -1}, {1, -1}, {2, -1},
                          {-2, 0}, {-1, 0}, {0, 0}, {1, 0}, {2, 0},
                         {-2, 1}, {-1, 1}, {0, 1}, {1, 1}, {2, 1},
                         {-2, 2}, {-1, 2}, {0, 2}, {1, 2}, {2, 2} };
+
 
 
 
@@ -113,7 +140,7 @@ static float* dev_kernel = NULL;
 static glm::ivec2* dev_offset = NULL;
 static glm::vec3* dev_out = NULL;
 static glm::vec3* dev_in = NULL;
-
+//StreamCompaction::Common::PerformanceTimer timer;
 
 //Kernel that writes the image to the OpenGL PBO directly.
 __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
@@ -215,11 +242,9 @@ __global__ void denoise(glm::ivec2 resolution, int iter, glm::vec3* image, glm::
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        //uchar4 color = pbo[index];
         glm::vec3 cval = image[index] / 255.0f;
 
         glm::vec3 sum(0.0f);
-        //glm::ivec2 step((int) (1.0f / (float)resolution.x), (int) (1.0f / (float)resolution.y));
 
         glm::vec3 pval = gBuffer[index].position;
         glm::vec3 nval = gBuffer[index].normal;
@@ -227,23 +252,21 @@ __global__ void denoise(glm::ivec2 resolution, int iter, glm::vec3* image, glm::
         float sf2 = sampleFrame * sampleFrame;
 
         float cum_w = 0.0f;
-        //c_phi = 0.572f;
-        //n_phi = 0.021f;
-        //p_phi = 0.789f;
+        int count = 0;
 
-
-            for (int i = 0; i < 25; i++) {
-
+        for (int j = -2; j <= 2; j++) {
+            for (int i = -2; i <= 2; i++) {
                 glm::ivec2 uv;
 
-                uv.x = glm::clamp(x + offset[i].x * stepwidth, 0, resolution.x - 1);
-                uv.y = glm::clamp(y + offset[i].y * stepwidth, 0, resolution.y - 1);
+                uv.x = glm::clamp(x + i * stepwidth, 0, resolution.x - 1);
+                uv.y = glm::clamp(y + j * stepwidth, 0, resolution.y - 1);
 
 
                 int point_index = uv.x + (uv.y * resolution.x);
-                
+
                 glm::vec3 ctmp = image[point_index] / 255.0f;
 
+                
                 glm::vec3 t = cval - ctmp;
                 float dist2 = glm::dot(t, t);
                 float c_w = glm::min(glm::exp(-(dist2) / c_phi), 1.0f);
@@ -257,22 +280,51 @@ __global__ void denoise(glm::ivec2 resolution, int iter, glm::vec3* image, glm::
                 t = pval - ptmp;
                 dist2 = glm::dot(t, t);
                 float p_w = glm::min(glm::exp(-(dist2) / p_phi), 1.0f);
-#if GAUSSIAN
-                float weight = kernel[i];
-#else
-                float weight = c_w * n_w * p_w * kernel[i];
-
-#endif // GAUSSIAN
+                
+                float weight = c_w * p_w * n_w * kernel[count++];
 
 
                 sum += ctmp * weight;
                 cum_w += weight;
-
+            }
             }
             sum *= 255.0f;
             out[index] = sum / cum_w;
     }
 }
+
+__global__ void denoiseGaussian(
+    glm::ivec2 resolution, int iter, glm::vec3* image, float* kernel, GBufferPixel* gBuffer, int stepwidth, glm::vec3* out) {
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < resolution.x && y < resolution.y) {
+        int index = x + (y * resolution.x);
+
+        glm::vec3 sum(0.0f);
+        int count = 0;
+
+        for (int j = -7; j <= 7; j++) {
+            for (int i = -7; i <= 7; i++) {
+                glm::ivec2 uv;
+
+                uv.x = glm::clamp(x + i, 0, resolution.x - 1);
+                uv.y = glm::clamp(y + j, 0, resolution.y - 1);
+
+
+                int point_index = uv.x + (uv.y * resolution.x);
+
+                glm::vec3 ctmp = image[point_index];
+
+                float weight = kernel[count++];
+
+                sum += ctmp * weight;
+            }
+        }
+        out[index] = sum;
+    }
+}
+
 void pathtraceInit(Scene *scene) {
     hst_scene = scene;
     const Camera &cam = hst_scene->state.camera;
@@ -306,8 +358,15 @@ void pathtraceInit(Scene *scene) {
 
     cudaMalloc(&dev_gBuffer, pixelcount * sizeof(GBufferPixel));
 
+#if GAUSSIAN
+    cudaMalloc(&dev_kernel, 225 * sizeof(float));
+    cudaMemcpy(dev_kernel, kernel, 225 * sizeof(float), cudaMemcpyHostToDevice);
+#else
     cudaMalloc(&dev_kernel, 25 * sizeof(float));
     cudaMemcpy(dev_kernel, kernel, 25 * sizeof(float), cudaMemcpyHostToDevice);
+#endif // GAUSSIAN
+
+
 
     cudaMalloc(&dev_offset, 25 * sizeof(glm::ivec2));
     cudaMemcpy(dev_offset, offset, 25 * sizeof(glm::ivec2), cudaMemcpyHostToDevice);
@@ -694,7 +753,9 @@ void pathtrace(int frame, int iter) {
     printf("depth: %d  nums_path:  %d\n", depth - 1, num_paths);
 
   bool iterationComplete = false;
-  auto start = std::chrono::steady_clock::now();
+  StreamCompaction::Common::PerformanceTimer timer;
+  timer.startGpuTimer();
+
 	while (!iterationComplete) {
 
 	// clean shading chunks
@@ -803,9 +864,8 @@ void pathtrace(int frame, int iter) {
   }
 	}
 
-    auto end = std::chrono::steady_clock::now();
-    std::chrono::duration<double> elapsed_seconds = end - start;
-    std::cout << "Iter:" << iter << ",   elapsed time: " << elapsed_seconds.count() << "s\n";
+    timer.endGpuTimer();
+    std::cout << "Iter:" << iter << ",   elapsed time: " << timer.getGpuElapsedTimeForPreviousOperation() << "ms\n";
     //printf("%d :  %d\n", iter, num_paths);
     num_paths = dev_path_end - dev_paths;
   // Assemble this iteration and apply it to the image
@@ -850,27 +910,46 @@ void showImage(uchar4* pbo, int iter, bool isdenoise, float c_phi, float n_phi, 
 
     int stepwidth = 1;
     double time = 0.0f;
+    StreamCompaction::Common::PerformanceTimer timer;
     if (isdenoise) {
         colorPerIter << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, dev_image, dev_in, iter);
+        timer.startGpuTimer();
 
-        for (stepwidth = 1; stepwidth <= filter_size / 2; stepwidth *= 2) {
+#if GAUSSIAN
+        auto start = std::chrono::steady_clock::now();
+        denoiseGaussian << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, iter, dev_in, dev_kernel, dev_gBuffer, stepwidth, dev_out);
+        auto end = std::chrono::steady_clock::now();
+        std::chrono::duration<double> elapsed_seconds = end - start;
+        std::cout << "filter_size:" << filter_size << ",   elapsed time: " << elapsed_seconds.count() << "ms\n";
+
+#else
+
+        for (stepwidth = 1; stepwidth <= filter_size; stepwidth *= 2) {
             //printf("Denoise step: %d\n", stepwidth);
-            auto start = std::chrono::steady_clock::now();
-
+            //auto start = std::chrono::steady_clock::now();
             denoise << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, iter, dev_in, dev_offset, dev_kernel, dev_gBuffer, stepwidth, dev_out, c_phi, n_phi, p_phi);
+            //auto end = std::chrono::steady_clock::now();
+            //std::chrono::duration<double> elapsed_seconds = end - start;
 
-            auto end = std::chrono::steady_clock::now();
-            std::chrono::duration<double> elapsed_seconds = end - start;
-            time += elapsed_seconds.count();
-            cudaMemcpy(dev_in, dev_out, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+            //time += elapsed_seconds.count();
+            auto dev_tmp = dev_in;
+            dev_in = dev_out;
+            dev_out = dev_tmp;
+            //cudaMemcpy(dev_in, dev_out, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
             //dev_in = dev_out;
         }
-        std::cout << "filter_size:" << filter_size << ",   elapsed time: " <<  time << "s\n";
+        //std::cout << "filter_size:" << filter_size << ",   elapsed time: " << time << "s\n";
 
+
+
+
+#endif // GAUSSIAN
+        timer.endGpuTimer();
+        std::cout << "stepwidth:" << stepwidth << ",   elapsed time: " << timer.getGpuElapsedTimeForPreviousOperation() << "ms\n";
         sendImageToPBO2 << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_out);
 
-
     }
+
     else {
         sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
     }

@@ -76,6 +76,7 @@ set(headers
     src/tiny_obj_loader.cc
     src/tiny_obj_loader.h
     src/octree.h
+    src/common.h
     )
 
 set(sources
