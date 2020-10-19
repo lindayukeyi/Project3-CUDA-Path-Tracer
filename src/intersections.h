@@ -217,7 +217,7 @@ __host__ __device__ float triangleIntersectionTest(Geom geom, Triangle *triangle
 
     intersectionPoint = multiplyMV(geom.transform, glm::vec4(getPointOnRay(q, tMin), 1.0f));
     normal = glm::normalize(multiplyMV(geom.transform, glm::vec4(triangles[iMin].nor, 0.0f)));
-    uv = triangles[iMin].uv[0] * (1 - bary.x - bary.y) + triangles[iMin].uv[1] * bary.x + triangles[iMin].uv[2] * bary.y;
+    //uv = triangles[iMin].uv[0] * (1 - bary.x - bary.y) + triangles[iMin].uv[1] * bary.x + triangles[iMin].uv[2] * bary.y;
     if (glm::dot(normal, r.direction) < 0) {
         outside = true;
     }

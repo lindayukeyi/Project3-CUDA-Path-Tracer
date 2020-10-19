@@ -28,7 +28,7 @@
 #define ANTIALISING 0
 #define BLUR 0
 #define CULLING 1
-#define GAUSSIAN 1
+#define GAUSSIAN 0
 #define ATROUS 0
 
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
@@ -257,7 +257,7 @@ __global__ void denoise(glm::ivec2 resolution, int iter, glm::vec3* image, glm::
                 t = pval - ptmp;
                 dist2 = glm::dot(t, t);
                 float p_w = glm::min(glm::exp(-(dist2) / p_phi), 1.0f);
-#ifdef GAUSSIAN
+#if GAUSSIAN
                 float weight = kernel[i];
 #else
                 float weight = c_w * n_w * p_w * kernel[i];
@@ -838,7 +838,7 @@ void showGBuffer(uchar4* pbo) {
     gbufferToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, dev_gBuffer);
 }
 
-void showImage(uchar4* pbo, int iter, bool isdenoise, float c_phi, float n_phi, float p_phi) {
+void showImage(uchar4* pbo, int iter, bool isdenoise, float c_phi, float n_phi, float p_phi, int filter_size) {
     const Camera& cam = hst_scene->state.camera;
     const dim3 blockSize2d(8, 8);
     const dim3 blocksPerGrid2d(
@@ -849,16 +849,23 @@ void showImage(uchar4* pbo, int iter, bool isdenoise, float c_phi, float n_phi, 
     int pixelcount = cam.resolution.x * cam.resolution.y;
 
     int stepwidth = 1;
+    double time = 0.0f;
     if (isdenoise) {
         colorPerIter << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, dev_image, dev_in, iter);
-        int filtersize = 8;
-        int num = glm::log(filtersize / 2);
-        for (stepwidth = 1; stepwidth <= filtersize / 2; stepwidth *= 2) {
+
+        for (stepwidth = 1; stepwidth <= filter_size / 2; stepwidth *= 2) {
             //printf("Denoise step: %d\n", stepwidth);
+            auto start = std::chrono::steady_clock::now();
+
             denoise << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, iter, dev_in, dev_offset, dev_kernel, dev_gBuffer, stepwidth, dev_out, c_phi, n_phi, p_phi);
+
+            auto end = std::chrono::steady_clock::now();
+            std::chrono::duration<double> elapsed_seconds = end - start;
+            time += elapsed_seconds.count();
             cudaMemcpy(dev_in, dev_out, pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
             //dev_in = dev_out;
         }
+        std::cout << "filter_size:" << filter_size << ",   elapsed time: " <<  time << "s\n";
 
         sendImageToPBO2 << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_out);
 

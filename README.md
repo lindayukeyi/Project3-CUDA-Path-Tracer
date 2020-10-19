@@ -17,6 +17,7 @@ Contents
   - [Scatter Rays](#Scatter-Rays)
   - [Shade Rays](#Shade-rays)
 - [Improvement and Performance Analysis](#Improvement-and-Performance-Analysis)
+- [Denoise](#Denoise)
 - [Debug](#Debug)
 - [Reference](#Reference)
 
@@ -186,6 +187,60 @@ Basic Scene           |  Mario Scene
 :-------------------------:|:-------------------------:
 ![](img/basic_performance.png) | ![](img/mario_performance.png)
 
+## Denoise
+I followed the pseudo code in this [paper]() to implement the Edge-Avoiding A-Trous denoising filter. One thing need to notice is that the range of each attribute(i.e. color, normal, position) should be close. For example, there are some different representations of color. If I use the (0, 255) range to represent colors and (0, 1) range to represent normals, colors will always dominate when computing the weight. So I should aslo use (0, 1) range to represent colors when computing the weight and then set pixel color in (0, 255) range to display the image on the screen.
+
+I did some tests to analyze the performance of this algorithm. I used the basic scene to do test in the first three sections. And I use MSE loss to compare two images.
+### The number of iterations
+Obviously, the number of iterations needed to get an "acceptably smooth" result is greatly reduced. 
+
+|RT Reference/Result(315 iterations) |  RT Result(15 iterations) |  Denoised Result(15 iterations)|
+:-------------------------:|:-------------------------:|:-------------------------:
+|![](img2/simple-80/cornell.2020-10-18_02-10-19z.315samp.png) | ![](img2/simple-80/cornell.2020-10-18_02-10-19z.15samp.png) | ![](img2/simple-80/denoise_cornell.2020-10-18_02-10-19z.315samp.png) |
+||MSE 820.784|MSE 67.12|
+
+Also, as the number of iterations increases, the raw path tracing results will become more soomth. However, the algorithm will not affect the results a lot after I get a an "acceptably smooth" result.
+
+||10 |  30 |  190| 500 | 1140|
+:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
+|Path tracing|![](img2/combo-32/cornell.2020-10-18_02-16-15z.10samp.png) | ![](img2/combo-32/cornell.2020-10-18_02-16-15z.30samp.png) | ![](img2/combo-32/cornell.2020-10-18_02-16-15z.190samp.png) | ![](img2/combo-32/cornell.2020-10-18_02-16-15z.500samp.png) | ![](img2/combo-32/cornell.2020-10-18_02-16-15z.1140samp.png) |
+|Denoised|![](img2/combo-32/denoise_cornell.2020-10-18_02-16-15z.10samp.png) | ![](img2/combo-32/denoise_cornell.2020-10-18_02-16-15z.30samp.png) | ![](img2/combo-32/denoise_cornell.2020-10-18_02-16-15z.190samp.png) | ![](img2/combo-32/denoise_cornell.2020-10-18_02-16-15z.500samp.png) | ![](img2/combo-32/denoise_cornell.2020-10-18_02-16-15z.1140samp.png) |
+
+### Runtime at different resolutions
+
+### Different Materials
+
+1. Diffusion
+
+|RT Reference/Result(3900 iterations) |  RT Result(300 iterations) |  Denoised Result(300 iterations)|
+:-------------------------:|:-------------------------:|:-------------------------:
+|![](img2/cornell1-diffuse-30/cornell.2020-10-17_22-11-18z.3900samp.png) | ![](img2/cornell1-diffuse-30/cornell.2020-10-17_22-11-18z.300samp.png) | ![](img2/cornell1-diffuse-30/denoise_cornell.2020-10-17_22-11-18z.300samp.png) |
+||MSE 233.447|MSE 34.596|
+
+2. Reflection
+
+
+3. Refraction
+
+|RT Reference/Result(3300 iterations) |  RT Result(300 iterations) |  Denoised Result(300 iterations)|
+:-------------------------:|:-------------------------:|:-------------------------:
+|![](img2/cornell1-refract-31/cornell.2020-10-18_00-14-57z.3300samp.png) | ![](img2/cornell1-refract-31/cornell.2020-10-18_00-14-57z.300samp.png) | ![](img2/cornell1-refract-31/denoise_cornell.2020-10-18_00-14-57z.1300samp.png) |
+||MSE 232.110|MSE 40.402|
+
+### Filter size
+### Different scenes
+
+
+|RT Reference/Result(315 iterations) |  RT Result(15 iterations) |  Denoised Result(15 iterations)|
+:-------------------------:|:-------------------------:|:-------------------------:
+|![](img2/simple-80/cornell.2020-10-18_02-10-19z.315samp.png) | ![](img2/simple-80/cornell.2020-10-18_02-10-19z.15samp.png) | ![](img2/simple-80/denoise_cornell.2020-10-18_02-10-19z.315samp.png) |
+||MSE 820.784|MSE 67.12|
+
+
+|RT Reference/Result(5000 iterations) |  RT Result(125 iterations) |  Denoised Result(125 iterations)|
+:-------------------------:|:-------------------------:|:-------------------------:
+|![](img/basicscene1.png) | ![](img2/combo-32/cornell.2020-10-18_02-16-15z.125samp.png) | ![](img2/combo-32/denoise_cornell.2020-10-18_02-16-15z.125samp.png) |
+||MSE 3603.244|MSE 1240.063|
 
 
 ## Debug

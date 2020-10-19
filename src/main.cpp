@@ -23,8 +23,8 @@ int ui_iterations = 0;
 int startupIterations = 0;
 int lastLoopIterations = 0;
 bool ui_showGbuffer = false;
-bool ui_denoise = false;
-int ui_filterSize = 80;
+bool ui_denoise = true;
+int ui_filterSize = 64;
 float ui_colorWeight = 0.45f;
 float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
@@ -180,7 +180,11 @@ void runCuda() {
         showGBuffer(pbo_dptr);
     }
     else {
-        showImage(pbo_dptr, iteration, ui_denoise, ui_colorWeight, ui_normalWeight,  ui_positionWeight);
+        showImage(pbo_dptr, iteration, ui_denoise, ui_colorWeight, ui_normalWeight,  ui_positionWeight, ui_filterSize);
+    }
+
+    if (iteration % 5 == 0) {
+        saveImage();
     }
 
     // unmap buffer object
@@ -252,4 +256,8 @@ void mousePositionCallback(GLFWwindow* window, double xpos, double ypos) {
     }
     lastX = xpos;
     lastY = ypos;
+}
+
+void compareImages(string filename1, string filename2) {
+    
 }
