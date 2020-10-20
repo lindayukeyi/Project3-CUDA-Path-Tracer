@@ -24,7 +24,7 @@ Contents
 ## Introduction
 In this project, I implemented a CUDA-based path tracer capable of rendering globally-illuminated images very quickly.
 
-![](img/mario83.png)
+![](img/bunnycut.png)
 
 ## Core Features
 ### Generate Rays from Camera
@@ -126,7 +126,7 @@ I used a bounding box to do reduce the number of rays that have to be checked ag
 
 Mario Scene (Only 80 iterations)           |  Tree Scene
 :-------------------------:|:-------------------------:
-![](img/mario.png) | ![](img/tree.png)
+![](img/cornell.2020-10-14_20-22-05z.787samp.png) | ![](img/tree.png)
 
 ### Object Motion and motion blur
 Instead of moving objects, I move camera at each iteration to create motion blur effets. 

@@ -184,7 +184,7 @@ SCALE       2 2 2
 OBJECTOBJ 10
 ../scenesobj/bunny2.obj
 material 8
-TRANS       -1 0 3
+TRANS       -2 0 3
 ROTAT       0 10 0
 SCALE       .7 .7 .7
 

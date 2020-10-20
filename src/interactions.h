@@ -176,6 +176,8 @@ void scatterRay(
                 pathSegment.ray.origin = intersect + 0.001f * normal;
             }
         }
+
+        pathSegment.color *= m.color;
         
     }
     else if (m.hasReflective) {
