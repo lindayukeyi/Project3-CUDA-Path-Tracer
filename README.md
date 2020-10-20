@@ -110,7 +110,7 @@ Since it will iterate many times, I randomly add an offset at each iteration for
 
 NO ANTIALISAING            |  ANTIALISAING
 :-------------------------:|:-------------------------:
-![](img/non-antilias.png) | ![](img/tree.png)
+![](img/non-antilias.png) | ![](img/antialis.png)
 
 ### Better hemisphere sampling methods
 I used 2D Jittered Sampling to generate two random numbers between 0 to 1. Then I mapped them to the hemisphere with a cosine weighting.
